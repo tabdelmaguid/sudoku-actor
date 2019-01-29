@@ -13,7 +13,7 @@ object Main extends App {
 
   val system: ActorSystem = ActorSystem("sudoku-actor")
 
-  val board1 = List(
+  val board1 = List[Byte](
     1, 0, 0,   0, 0, 7,   0, 9, 0,
     0, 3, 0,   0, 2, 0,   0, 0, 8,
     0, 0, 9,   6, 0, 0,   5, 0, 0,
@@ -26,7 +26,7 @@ object Main extends App {
     0, 4, 0,   0, 0, 0,   0, 0, 7,
     0, 0, 7,   0, 0, 0,   3, 0, 0)
 
-  val board2 = List(
+  val board2 = List[Byte](
     2, 0, 0,   0, 0, 0,   0, 6, 0,
     0, 0, 0,   0, 7, 5,   0, 3, 0,
     0, 4, 8,   0, 9, 0,   1, 0, 0,
