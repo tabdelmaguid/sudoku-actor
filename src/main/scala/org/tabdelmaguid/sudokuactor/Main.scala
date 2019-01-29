@@ -63,7 +63,6 @@ object Main extends App {
   system.scheduler.scheduleOnce(FiniteDuration(2, TimeUnit.SECONDS)) {
     println("bye ...")
     system.terminate()
-    Thread.sleep(2000)
   }
 
 }
