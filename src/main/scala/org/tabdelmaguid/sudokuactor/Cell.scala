@@ -20,8 +20,6 @@ class Cell(id: Int) extends Actor with ActorLogging {
   // groupKey -> ( cellId -> Set(value options) )
   val allNeighbors: mutable.Map[String, mutable.Map[ActorRef, Set[Byte]]] = mutable.Map()
 
-  private val ALL_SYMBOLS = (1 to 9).map(_.toByte).toSet
-
   override def receive: Receive = {
     case AddNeighbors(groupKey, neighbors) =>
       val groupMap = allNeighbors.getOrElseUpdate(groupKey, mutable.Map.empty)
