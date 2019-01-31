@@ -23,7 +23,6 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
 
   val cells: mutable.MutableList[ActorRef] = mutable.MutableList()
   val groups: mutable.Map[String, mutable.Set[ActorRef]] = mutable.Map()
-  val solvedCells: mutable.ArraySeq[Byte] = mutable.ArraySeq.fill(BOARD_SIZE)(0)
   val cellsState: mutable.ArraySeq[Set[Byte]] = mutable.ArraySeq.fill(BOARD_SIZE)(ALL_SYMBOLS)
 
   private def row(index: Int) = index / 9
@@ -62,10 +61,10 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
   }
 
   def printBoard(): Unit = {
-    val firstLine =     "╔════╤════╤════╦════╤════╤════╦════╤════╤════╗\n"
-    val lineSeparator = "╟────┼────┼────╫────┼────┼────╫────┼────┼────╢\n"
-    val laneSeparator = "╠════╪════╪════╬════╪════╪════╬════╪════╪════╣\n"
-    val lastLine =      "╚════╧════╧════╩════╧════╧════╩════╧════╧════╝"
+    val firstLine =       "╔═══════╤═══════╤═══════╦═══════╤═══════╤═══════╦═══════╤═══════╤═══════╗\n"
+    val lineSeparator = "\n╟───────┼───────┼───────╫───────┼───────┼───────╫───────┼───────┼───────╢\n"
+    val laneSeparator = "\n╠═══════╪═══════╪═══════╬═══════╪═══════╪═══════╬═══════╪═══════╪═══════╣\n"
+    val lastLine =      "\n╚═══════╧═══════╧═══════╩═══════╧═══════╧═══════╩═══════╧═══════╧═══════╝"
 
     val printBoard = Array.ofDim[Byte](27, 27)
     cellsState.zipWithIndex.foreach { case (cellOptions, index) =>
@@ -82,24 +81,32 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
         } { printBoard(cellYAnchor + y)(cellXAnchor + x) = cellValue }
       }
     }
-    printBoard.foreach(row => {
-      row.foreach(value => print(value))
-      println
-    })
+    val boardStr = printBoard
+      .grouped(GROUP_SIZE)
+      .map(lane => {
+        lane
+          .grouped(GROUP_EDGE)
+          .map(row => {
+            row.map(line => {
+              line.grouped(GROUP_SIZE)
+                .map(section => {
+                  section.grouped(GROUP_EDGE)
+                    .map(cellLine => {
+                      cellLine
+                        .map(value => if (value == 0) " " else value)
+                        .mkString(" ", " ", " ")
+                    })
+                    .mkString("│")
+                })
+                .mkString("║", "║", "║")
+            })
+            .mkString("\n")
+          })
+          .mkString(lineSeparator)
+      })
+      .mkString(firstLine, laneSeparator, lastLine)
 
-//    println(
-//      cellsState
-//        .grouped(9)
-//        .grouped(3)
-//        .map(lane => {
-//          lane.map(row => {
-//            row.grouped(3)
-//              .map(section => {
-//                section.map(_.formatted("%2d")).mkString(" │ ")
-//              }).mkString("║ ", " ║ ", " ║\n")
-//          }).mkString(lineSeparator)
-//        }).mkString(firstLine, laneSeparator, lastLine)
-//    )
+    println(boardStr)
   }
 
   def receive: Receive = {
@@ -108,7 +115,6 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
       setupCells()
       printBoard()
     case CellSolved(cellId, value) =>
-      solvedCells(cellId) = value
-//      log.info("Solved cells: {}", solvedCells)
+      cellsState(cellId) = Set(value)
   }
 }
