@@ -68,43 +68,25 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
 
     val printBoard = Array.ofDim[Byte](27, 27)
     cellsState.zipWithIndex.foreach { case (cellOptions, index) =>
-      val cellXAnchor = col(index) * 3
-      val cellYAnchor = row(index) * 3
+      val (cellXAnchor, cellYAnchor) = (col(index) * 3, row(index) * 3)
       if (cellOptions.size == 1) {
         printBoard(cellYAnchor + 1)(cellXAnchor + 1) = cellOptions.head
-      } else {
-        for {
-          x <- 0 to 2
-          y <- 0 to 2
-          cellValue <- List((x + 3 * y + 1).toByte)
-          if cellOptions.contains(cellValue)
-        } { printBoard(cellYAnchor + y)(cellXAnchor + x) = cellValue }
+      } else for (cellValue <- cellOptions) {
+        val (x, y) = ((cellValue - 1) % 3, (cellValue - 1) / 3)
+        printBoard(cellYAnchor + y)(cellXAnchor + x) = cellValue
       }
     }
-    val boardStr = printBoard
-      .grouped(GROUP_SIZE)
-      .map(lane => {
-        lane
-          .grouped(GROUP_EDGE)
-          .map(row => {
-            row.map(line => {
-              line.grouped(GROUP_SIZE)
-                .map(section => {
-                  section.grouped(GROUP_EDGE)
-                    .map(cellLine => {
-                      cellLine
-                        .map(value => if (value == 0) " " else value)
-                        .mkString(" ", " ", " ")
-                    })
-                    .mkString("│")
-                })
-                .mkString("║", "║", "║")
-            })
-            .mkString("\n")
-          })
-          .mkString(lineSeparator)
-      })
-      .mkString(firstLine, laneSeparator, lastLine)
+
+    def formatCellLine: Array[Byte] => String = // a 3-value line in one cell
+      _.map(value => if (value == 0) " " else value).mkString(" ", " ", " ")
+    def formatSection: Array[Byte] => String = // a 3 cell section of one line
+      _.grouped(GROUP_EDGE).map(formatCellLine).mkString("│")
+    def formatLine: Array[Byte] => String = // a line, representing a third of a cell row
+      _.grouped(GROUP_SIZE).map(formatSection).mkString("║", "║", "║")
+    def formatRow: Array[Array[Byte]] => String = _.map(formatLine).mkString("\n") // a cell row
+    def formatLane: Array[Array[Byte]] => String = // a 3 row lane
+      _.grouped(GROUP_EDGE).map(formatRow).mkString(lineSeparator)
+    val boardStr = printBoard.grouped(GROUP_SIZE).map(formatLane).mkString(firstLine, laneSeparator, lastLine)
 
     println(boardStr)
   }
@@ -116,5 +98,7 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
       printBoard()
     case CellSolved(cellId, value) =>
       cellsState(cellId) = Set(value)
+      printBoard()
+
   }
 }
