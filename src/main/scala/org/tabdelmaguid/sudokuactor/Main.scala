@@ -1,11 +1,11 @@
 package org.tabdelmaguid.sudokuactor
 
-import java.util.concurrent.TimeUnit
-
 import akka.actor.{ActorRef, ActorSystem}
+import akka.pattern.ask
+import akka.util.Timeout
 
-import scala.concurrent.ExecutionContextExecutor
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.Await
+import scala.concurrent.duration._
 
 
 object Main extends App {
@@ -56,13 +56,9 @@ object Main extends App {
 
   val solver: ActorRef = system.actorOf(Solver.props(board1), "solverActor")
 
-  solver ! Solve
-
-  implicit val executor: ExecutionContextExecutor = system.dispatcher
-
-  system.scheduler.scheduleOnce(FiniteDuration(2, TimeUnit.SECONDS)) {
-    println("bye ...")
-    system.terminate()
-  }
+  implicit  val timout: Timeout = Timeout(5 seconds)
+  val doneSolving = solver ? Solve
+  Await.result(doneSolving, timout.duration)
+  system.terminate()
 
 }

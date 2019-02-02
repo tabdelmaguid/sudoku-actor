@@ -1,21 +1,26 @@
 package org.tabdelmaguid.sudokuactor
 
+import java.util.concurrent.TimeUnit
+
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 
 import scala.collection.mutable
+import scala.concurrent.duration.Duration
 
 object Solver {
   val ALL_SYMBOLS: Set[Byte] = (1 to 9).map(_.toByte).toSet
 
   def props(board: List[Byte]): Props = Props(new Solver(board))
+  // messages
   case object Solve
   case class CellSolved(cellId: Int, value: Byte)
+  case object CheckQuiet
 }
 
 
 class Solver(board: List[Byte]) extends Actor with ActorLogging {
-  import Solver._
   import Cell._
+  import Solver._
 
   val GROUP_EDGE = 3
   val GROUP_SIZE: Int = GROUP_EDGE * GROUP_EDGE
@@ -91,14 +96,25 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
     println(boardStr)
   }
 
+  private val toCancel = context.system.scheduler
+    .schedule(Duration(100, TimeUnit.MILLISECONDS), Duration(100, TimeUnit.MILLISECONDS), self, CheckQuiet)(context.dispatcher)
+
+  var requester: ActorRef = _
+
   def receive: Receive = {
     case Solve =>
       println("hi")
       setupCells()
       printBoard()
+      requester = sender()
     case CellSolved(cellId, value) =>
       cellsState(cellId) = Set(value)
+    case CheckQuiet =>
+      println("bye ...")
       printBoard()
+      toCancel.cancel()
+      context.stop(self)
+      requester ! "Done!"
 
   }
 }
