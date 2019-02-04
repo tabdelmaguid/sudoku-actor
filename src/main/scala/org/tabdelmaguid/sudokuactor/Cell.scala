@@ -25,7 +25,7 @@ class Cell(id: Int) extends Actor with ActorLogging {
       val groupMap = allNeighbors.getOrElseUpdate(groupKey, mutable.Map.empty)
       neighbors.foreach(groupMap(_) = ALL_SYMBOLS)
     case SetValue(value) =>
-      sender() ! CellSolved(id, value)
+      sender() ! CellUpdate(id, Set(value))
       context.stop(self)
   }
 

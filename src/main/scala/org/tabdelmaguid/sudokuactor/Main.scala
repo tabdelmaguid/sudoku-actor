@@ -4,7 +4,7 @@ import akka.actor.{ActorRef, ActorSystem}
 import akka.pattern.ask
 import akka.util.Timeout
 
-import scala.concurrent.Await
+import scala.concurrent.ExecutionContextExecutor
 import scala.concurrent.duration._
 
 
@@ -54,11 +54,12 @@ object Main extends App {
     * 792 156 384
     */
 
+  implicit val timout: Timeout = Timeout(5 seconds)
+  implicit val executor: ExecutionContextExecutor = system.dispatcher
+
   val solver: ActorRef = system.actorOf(Solver.props(board1), "solverActor")
 
-  implicit  val timout: Timeout = Timeout(5 seconds)
-  val doneSolving = solver ? Solve
-  Await.result(doneSolving, timout.duration)
-  system.terminate()
-
+  solver ? Solve andThen {
+    case _ => system.terminate()
+  }
 }

@@ -13,7 +13,7 @@ object Solver {
   def props(board: List[Byte]): Props = Props(new Solver(board))
   // messages
   case object Solve
-  case class CellSolved(cellId: Int, value: Byte)
+  case class CellUpdate(cellId: Int, value: Set[Byte])
   case object CheckQuiet
 }
 
@@ -29,6 +29,7 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
   val cells: mutable.MutableList[ActorRef] = mutable.MutableList()
   val groups: mutable.Map[String, mutable.Set[ActorRef]] = mutable.Map()
   val cellsState: mutable.ArraySeq[Set[Byte]] = mutable.ArraySeq.fill(BOARD_SIZE)(ALL_SYMBOLS)
+  var lastMessageAt: Long = System.currentTimeMillis()
 
   private def row(index: Int) = index / 9
   private def col(index: Int) = index % 9
@@ -107,14 +108,18 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
       setupCells()
       printBoard()
       requester = sender()
-    case CellSolved(cellId, value) =>
-      cellsState(cellId) = Set(value)
+    case CellUpdate(cellId, values) =>
+      cellsState(cellId) = values
+      lastMessageAt = System.currentTimeMillis
     case CheckQuiet =>
-      println("bye ...")
-      printBoard()
-      toCancel.cancel()
-      context.stop(self)
-      requester ! "Done!"
+      println(s"checking: lastAt = $lastMessageAt, now = ${System.currentTimeMillis()}")
+      if (System.currentTimeMillis() - lastMessageAt > 100) {
+        println("bye ...")
+        printBoard()
+        toCancel.cancel()
+        context.stop(self)
+        requester ! "Done!"
+      }
 
   }
 }
