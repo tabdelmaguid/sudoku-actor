@@ -1,4 +1,4 @@
-package org.tabdelmaguid.sudokuactor
+package org.tabdelmaguid.sudoku_actor
 
 import java.util.concurrent.TimeUnit
 
@@ -27,7 +27,7 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
   val BOARD_SIZE: Int = GROUP_SIZE * GROUP_SIZE
 
   val cells: mutable.MutableList[ActorRef] = mutable.MutableList()
-  val groups: mutable.Map[String, mutable.Set[ActorRef]] = mutable.Map()
+  val groups: mutable.Map[String, Set[ActorRef]] = mutable.Map()
   val cellsState: mutable.ArraySeq[Set[Byte]] = mutable.ArraySeq.fill(BOARD_SIZE)(ALL_SYMBOLS)
   var lastMessageAt: Long = System.currentTimeMillis()
 
@@ -36,7 +36,7 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
 
   def getGroups(index: Int) : Set[String] = {
     val cellRow = row(index)
-    val cellCol = col(9)
+    val cellCol = col(index)
     val square = cellCol / 3 + 3 * (cellRow / 3)
     Set(s"R$cellRow", s"C$cellCol", s"S$square")
   }
@@ -46,12 +46,11 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
     assert(board.forall((0 to GROUP_SIZE).contains(_)))
 
     (0 until BOARD_SIZE).foreach(index => {
-      val cellActor = context.actorOf(Cell.props(index), s"cell-$index")
-      cells += cellActor
+      val cell = context.actorOf(Cell.props(index), s"cell-$index")
+      cells += cell
       val cellGroups = getGroups(index)
-      cellGroups.foreach(group => {
-        val cellGroup = groups.getOrElseUpdate(group, mutable.Set.empty)
-        cellGroup.add(cellActor)
+      cellGroups.foreach(groupKey => {
+        groups.initOrUpdate(groupKey, Set(cell), _ + cell)
       })
     })
     groups.foreach { case(groupKey, group) =>
@@ -112,7 +111,6 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
       cellsState(cellId) = values
       lastMessageAt = System.currentTimeMillis
     case CheckQuiet =>
-      println(s"checking: lastAt = $lastMessageAt, now = ${System.currentTimeMillis()}")
       if (System.currentTimeMillis() - lastMessageAt > 100) {
         println("bye ...")
         printBoard()

@@ -1,4 +1,4 @@
-package org.tabdelmaguid.sudokuactor
+package org.tabdelmaguid.sudoku_actor
 
 import akka.actor.{ActorRef, ActorSystem}
 import akka.pattern.ask
