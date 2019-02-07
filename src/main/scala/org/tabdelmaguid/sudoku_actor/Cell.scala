@@ -25,6 +25,18 @@ class Cell(id: Int) extends Actor with ActorLogging {
   val groupOptions: mutable.Map[String, List[CellOptions]] = mutable.Map()
   var myOptions: Set[Byte] = ALL_SYMBOLS
 
+  def calcNewOptions(): Set[Byte] = {
+    val usedSymbols = groupOptions.values.flatten.map(_.options).filter(_.size == 1).reduce(_ ++ _)
+    myOptions -- usedSymbols
+  }
+
+  private def myNeighbors= neighborsOptions.keys
+
+  private def broadcastState(): Unit = {
+    solver ! CellUpdate(id, myOptions)
+    myNeighbors.foreach(_ ! MyOptions(myOptions))
+  }
+
   override def receive: Receive = {
     case AddNeighbors(groupKey, neighbors) =>
       solver = sender()
@@ -35,12 +47,17 @@ class Cell(id: Int) extends Actor with ActorLogging {
       }
     case SetValue(value) =>
       myOptions = Set(value)
-      solver ! CellUpdate(id, myOptions)
-      neighborsOptions.keys.foreach(_ ! MyOptions(myOptions))
+      broadcastState()
       context.stop(self)
     case MyOptions(values) =>
       val neighbor = sender()
       neighborsOptions(neighbor).options = values
+      val newOptions = calcNewOptions()
+      if (newOptions != myOptions) {
+        myOptions = newOptions
+        broadcastState()
+        if (newOptions.size == 1) context.stop(self)
+      }
   }
 
 }

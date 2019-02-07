@@ -105,7 +105,6 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
     case Solve =>
       println("hi")
       setupCells()
-      printBoard()
       requester = sender()
     case CellUpdate(cellId, values) =>
       cellsState(cellId) = values
