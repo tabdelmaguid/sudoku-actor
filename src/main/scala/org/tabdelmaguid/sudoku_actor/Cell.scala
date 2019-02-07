@@ -37,6 +37,14 @@ class Cell(id: Int) extends Actor with ActorLogging {
     myNeighbors.foreach(_ ! MyOptions(myOptions))
   }
 
+  private def updateState(newOptions: Set[Byte]): Unit = {
+    if (newOptions != myOptions) {
+      myOptions = newOptions
+      broadcastState()
+      if (newOptions.size == 1) context.stop(self)
+    }
+  }
+
   override def receive: Receive = {
     case AddNeighbors(groupKey, neighbors) =>
       solver = sender()
@@ -46,18 +54,11 @@ class Cell(id: Int) extends Actor with ActorLogging {
         groupOptions.initOrUpdate(groupKey, List(options), _ :+ options)
       }
     case SetValue(value) =>
-      myOptions = Set(value)
-      broadcastState()
-      context.stop(self)
+      updateState(Set(value))
     case MyOptions(values) =>
       val neighbor = sender()
       neighborsOptions(neighbor).options = values
-      val newOptions = calcNewOptions()
-      if (newOptions != myOptions) {
-        myOptions = newOptions
-        broadcastState()
-        if (newOptions.size == 1) context.stop(self)
-      }
+      updateState(calcNewOptions())
   }
 
 }
