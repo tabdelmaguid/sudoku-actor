@@ -27,8 +27,8 @@ object Solver {
   // messages
   case object Solve
   case class CellUpdate(cellId: Int, value: Set[Byte]) extends WithId
-  case object CheckQuiet extends WithId
   case class Unsolvable() extends WithId
+  case class Solved(solution: List[Byte])
 }
 
 
@@ -146,9 +146,8 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
 
   def solutionReached: Boolean = solutionSteps.peek.cellsState.forall(_.size == 1)
 
-  def terminate(message: String): Unit = {
+  def terminate(message: Any): Unit = {
     println(s"bye: $message ...")
-    if (message == "Done!") printBoard(solutionSteps.peek.cellsState)
     requester ! message
     context.stop(self)
   }
@@ -168,10 +167,11 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
     stopAll(solutionSteps.peek.cells)
     if (solutionSteps.peek.isUnsolvable) {
       while (solutionSteps.nonEmpty && !solutionSteps.peek.hasOptionsToTry) solutionSteps.pop()
-      if (solutionSteps.isEmpty) terminate("Unsolvable!")
+      if (solutionSteps.isEmpty) terminate(Unsolvable)
       else solutionSteps.push(solutionSteps.pop().nextOptionStep())
     } else if (solutionReached) {
-      terminate("Done!")
+      printBoard(solutionSteps.peek.cellsState)
+      terminate(Solved(solutionSteps.peek.cellsState.map(_.head).toList))
     } else {
       val stepFun = if (solutionSteps.peek.hasOptionsToTry) () => solutionSteps.peek else () => solutionSteps.pop()
       solutionSteps.push(stepFun().nextStep())

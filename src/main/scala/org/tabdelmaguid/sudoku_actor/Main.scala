@@ -96,7 +96,7 @@ object Main extends App {
   implicit val timout: Timeout = Timeout(60 seconds)
   implicit val executor: ExecutionContextExecutor = system.dispatcher
 
-  val solver: ActorRef = system.actorOf(Solver.props(board3), "solverActor")
+  val solver: ActorRef = system.actorOf(Solver.props(board1), "solverActor")
 
   solver ? Solve andThen {
     case _ => system.terminate()
