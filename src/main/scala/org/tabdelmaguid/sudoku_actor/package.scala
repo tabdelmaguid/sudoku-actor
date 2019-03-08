@@ -11,4 +11,6 @@ package object sudoku_actor {
       }
     }
   }
+
+  def optionIf[T](cond: Boolean, value: => T): Option[T] = if (cond) Option(value) else None
 }

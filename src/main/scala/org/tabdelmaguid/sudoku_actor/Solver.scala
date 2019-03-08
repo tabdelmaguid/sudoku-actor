@@ -1,11 +1,24 @@
 package org.tabdelmaguid.sudoku_actor
 
-import java.util.concurrent.TimeUnit
-
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, PoisonPill, Props}
 
 import scala.collection.mutable
-import scala.concurrent.duration.Duration
+
+class MutableStack[T] {
+  private var stack: mutable.MutableList[T] = mutable.MutableList.empty
+
+  def push(value: T): Unit = value +=: stack
+  def pop(): T = {
+    val value = stack.head
+    stack = stack.tail
+    value
+  }
+  def peek: T = stack.head
+  def size: Int = stack.size
+  def isEmpty: Boolean = stack.isEmpty
+  def nonEmpty: Boolean = stack.nonEmpty
+}
+
 
 object Solver {
   val ALL_SYMBOLS: Set[Byte] = (1 to 9).map(_.toByte).toSet
@@ -13,12 +26,13 @@ object Solver {
   def props(board: List[Byte]): Props = Props(new Solver(board))
   // messages
   case object Solve
-  case class CellUpdate(cellId: Int, value: Set[Byte])
-  case object CheckQuiet
+  case class CellUpdate(cellId: Int, value: Set[Byte]) extends WithId
+  case object CheckQuiet extends WithId
+  case class Unsolvable() extends WithId
 }
 
 
-class Solver(board: List[Byte]) extends Actor with ActorLogging {
+class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTracking {
   import Cell._
   import Solver._
 
@@ -26,9 +40,30 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
   val GROUP_SIZE: Int = GROUP_EDGE * GROUP_EDGE
   val BOARD_SIZE: Int = GROUP_SIZE * GROUP_SIZE
 
-  val cells: mutable.MutableList[ActorRef] = mutable.MutableList()
-  val groups: mutable.Map[String, Set[ActorRef]] = mutable.Map()
-  val cellsState: mutable.ArraySeq[Set[Byte]] = mutable.ArraySeq.fill(BOARD_SIZE)(ALL_SYMBOLS)
+  class SolutionStep(val cells: Seq[ActorRef],
+                     val initState: Seq[Set[Byte]],
+                         cellToGuess: Int = -1,
+                     val symbolsToTry: Set[Byte] = Set(),
+                     val cellsState: mutable.ArraySeq[Set[Byte]] = mutable.ArraySeq.fill(BOARD_SIZE)(ALL_SYMBOLS)) {
+    private var solvable = true
+    def isUnsolvable: Boolean = !solvable
+    def markUnsolvable(): Unit = solvable = false
+    def nextStep(initState: Seq[Set[Byte]], cellToGuess: Int, symbolsToTry: Set[Byte]): SolutionStep = {
+      val newState = initState.updated(cellToGuess, Set(symbolsToTry.head))
+      new SolutionStep(setupCells(newState), initState, cellToGuess, symbolsToTry.tail)
+    }
+    def nextStep(): SolutionStep = {
+      val nonSolvedCellsWithIndex = cellsState.zipWithIndex.filter(_._1.size != 1)
+      val (minCellOptions, index) = findCellWithMinOptions(nonSolvedCellsWithIndex.toList)
+      nextStep(cellsState, index, minCellOptions)
+    }
+    def nextOptionStep(): SolutionStep = nextStep(initState, cellToGuess, symbolsToTry)
+    def hasOptionsToTry: Boolean = symbolsToTry.nonEmpty
+  }
+
+  var solutionSteps = new MutableStack[SolutionStep]
+  var stepCounter = 0
+
   var lastMessageAt: Long = System.currentTimeMillis()
 
   private def row(index: Int) = index / 9
@@ -41,12 +76,13 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
     Set(s"R$cellRow", s"C$cellCol", s"S$square")
   }
 
-  private def setupCells(): Unit = {
-    assert(board.length == BOARD_SIZE)
-    assert(board.forall((0 to GROUP_SIZE).contains(_)))
+  private def setupCells(): Seq[ActorRef] = {
+
+    val cells: mutable.MutableList[ActorRef] = mutable.MutableList()
+    val groups: mutable.Map[String, Set[ActorRef]] = mutable.Map()
 
     (0 until BOARD_SIZE).foreach(index => {
-      val cell = context.actorOf(Cell.props(index), s"cell-$index")
+      val cell = context.actorOf(Cell.props(index), s"cell_$stepCounter-$index")
       cells += cell
       val cellGroups = getGroups(index)
       cellGroups.foreach(groupKey => {
@@ -56,16 +92,26 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
     groups.foreach { case(groupKey, group) =>
       group.foreach(cell => {
         val otherCells = group - cell
-        cell ! AddNeighbors(groupKey, otherCells.toSet)
+        cell ! track(AddNeighbors(groupKey, otherCells))
       })
     }
+
+    stepCounter += 1
     cells
-      .zip(board)
-      .filter { case (_, value) => value != 0 }
-      .foreach { case (cell, value) => cell ! SetValue(value) }
   }
 
-  def printBoard(): Unit = {
+  private def setupCells(cellsOptions: Seq[Set[Byte]]): Seq[ActorRef] = {
+    val cells = setupCells()
+    onAllMessagesAcked(() => {
+      cells
+        .zip(cellsOptions)
+        .foreach { case (cell, options) => cell ! track(SetOptions(options)) }
+    })
+    onAllMessagesAcked(assessSolutionState)
+    cells
+  }
+
+  def printBoard(cellsState: Seq[Set[Byte]]): Unit = {
     val firstLine =       "╔═══════╤═══════╤═══════╦═══════╤═══════╤═══════╦═══════╤═══════╤═══════╗\n"
     val lineSeparator = "\n╟───────┼───────┼───────╫───────┼───────┼───────╫───────┼───────┼───────╢\n"
     val laneSeparator = "\n╠═══════╪═══════╪═══════╬═══════╪═══════╪═══════╬═══════╪═══════╪═══════╣\n"
@@ -96,27 +142,61 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging {
     println(boardStr)
   }
 
-  private val toCancel = context.system.scheduler
-    .schedule(Duration(100, TimeUnit.MILLISECONDS), Duration(100, TimeUnit.MILLISECONDS), self, CheckQuiet)(context.dispatcher)
-
   var requester: ActorRef = _
+
+  def solutionReached: Boolean = solutionSteps.peek.cellsState.forall(_.size == 1)
+
+  def terminate(message: String): Unit = {
+    println(s"bye: $message ...")
+    if (message == "Done!") printBoard(solutionSteps.peek.cellsState)
+    requester ! message
+    context.stop(self)
+  }
+
+  private def findCellWithMinOptions(minSoFar: (Set[Byte], Int), rest: Seq[(Set[Byte], Int)]): (Set[Byte], Int) =
+    rest match {
+      case Seq() => minSoFar
+      case _ if minSoFar._1.size == 2 => minSoFar
+      case head :: tail => findCellWithMinOptions(List(head, minSoFar).minBy(_._1.size), tail)
+    }
+
+  private def findCellWithMinOptions(list: Seq[(Set[Byte], Int)]): (Set[Byte], Int) = findCellWithMinOptions(list.head, list.tail)
+
+  def stopAll(cells: Seq[ActorRef]): Unit = cells.foreach( _ ! PoisonPill )
+
+  private def assessSolutionState(): Unit = {
+    stopAll(solutionSteps.peek.cells)
+    if (solutionSteps.peek.isUnsolvable) {
+      while (solutionSteps.nonEmpty && !solutionSteps.peek.hasOptionsToTry) solutionSteps.pop()
+      if (solutionSteps.isEmpty) terminate("Unsolvable!")
+      else solutionSteps.push(solutionSteps.pop().nextOptionStep())
+    } else if (solutionReached) {
+      terminate("Done!")
+    } else {
+      val stepFun = if (solutionSteps.peek.hasOptionsToTry) () => solutionSteps.peek else () => solutionSteps.pop()
+      solutionSteps.push(stepFun().nextStep())
+    }
+  }
 
   def receive: Receive = {
     case Solve =>
       println("hi")
-      setupCells()
+      assert(board.length == BOARD_SIZE)
+      val boardSymbols = ALL_SYMBOLS + 0
+      assert(board.forall(boardSymbols.contains))
+      val cellsOptions = board.map { symbol => if (symbol == 0) ALL_SYMBOLS else Set(symbol) }
+      val cells = setupCells(cellsOptions)
+      solutionSteps.push(new SolutionStep(cells, cellsOptions))
       requester = sender()
-    case CellUpdate(cellId, values) =>
-      cellsState(cellId) = values
+    case msg @ CellUpdate(cellId, values) =>
+      ack(msg)
+      val currentStep = solutionSteps.peek
+      currentStep.cellsState(cellId) = values
       lastMessageAt = System.currentTimeMillis
-    case CheckQuiet =>
-      if (System.currentTimeMillis() - lastMessageAt > 100) {
-        println("bye ...")
-        printBoard()
-        toCancel.cancel()
-        context.stop(self)
-        requester ! "Done!"
-      }
-
+    case msg: Unsolvable =>
+      ack(msg)
+      solutionSteps.peek.markUnsolvable()
+    case Ack(messageId) => msgAcked(messageId)
   }
+
 }
