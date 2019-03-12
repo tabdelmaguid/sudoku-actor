@@ -64,8 +64,6 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
   var solutionSteps = new MutableStack[SolutionStep]
   var stepCounter = 0
 
-  var lastMessageAt: Long = System.currentTimeMillis()
-
   private def row(index: Int) = index / 9
   private def col(index: Int) = index % 9
 
@@ -76,7 +74,7 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
     Set(s"R$cellRow", s"C$cellCol", s"S$square")
   }
 
-  private def setupCells(): Seq[ActorRef] = {
+  private def createCellsAndSetGroups(): Seq[ActorRef] = {
 
     val cells: mutable.MutableList[ActorRef] = mutable.MutableList()
     val groups: mutable.Map[String, Set[ActorRef]] = mutable.Map()
@@ -100,13 +98,14 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
     cells
   }
 
+  private def setCellsOptions(cells: Seq[ActorRef], cellsOptions: Seq[Set[Byte]]): Unit =
+    cells
+      .zip(cellsOptions)
+      .foreach { case (cell, options) => cell ! track(SetOptions(options)) }
+
   private def setupCells(cellsOptions: Seq[Set[Byte]]): Seq[ActorRef] = {
-    val cells = setupCells()
-    onAllMessagesAcked(() => {
-      cells
-        .zip(cellsOptions)
-        .foreach { case (cell, options) => cell ! track(SetOptions(options)) }
-    })
+    val cells = createCellsAndSetGroups()
+    onAllMessagesAcked(() => setCellsOptions(cells, cellsOptions))
     onAllMessagesAcked(assessSolutionState)
     cells
   }
@@ -192,7 +191,6 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
       ack(msg)
       val currentStep = solutionSteps.peek
       currentStep.cellsState(cellId) = values
-      lastMessageAt = System.currentTimeMillis
     case msg: Unsolvable =>
       ack(msg)
       solutionSteps.peek.markUnsolvable()
