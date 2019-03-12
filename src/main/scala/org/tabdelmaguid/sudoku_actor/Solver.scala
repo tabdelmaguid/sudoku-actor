@@ -62,6 +62,7 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
     def nextOptionStep(): SolutionStep = nextStep(baseState, cellToGuess, symbolsToTry)
     def hasOptionsToTry: Boolean = symbolsToTry.nonEmpty
     def stopAll(): Unit = cells.foreach( _ ! PoisonPill )
+    def solutionReached: Boolean = cellsState.forall(_.size == 1)
   }
 
   var solutionSteps = new MutableStack[SolutionStep]
@@ -146,8 +147,6 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
 
   var requester: ActorRef = _
 
-  def solutionReached: Boolean = solutionSteps.peek.cellsState.forall(_.size == 1)
-
   def terminate(message: Any): Unit = {
     println(s"bye: $message ...")
     requester ! message
@@ -169,7 +168,7 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
       while (solutionSteps.nonEmpty && !solutionSteps.peek.hasOptionsToTry) solutionSteps.pop()
       if (solutionSteps.isEmpty) terminate(Unsolvable)
       else solutionSteps.push(solutionSteps.pop().nextOptionStep())
-    } else if (solutionReached) {
+    } else if (solutionSteps.peek.solutionReached) {
       printBoard(solutionSteps.peek.cellsState)
       terminate(Solved(solutionSteps.peek.cellsState.map(_.head).toList))
     } else {
