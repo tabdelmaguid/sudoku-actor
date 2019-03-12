@@ -40,25 +40,28 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
   val GROUP_SIZE: Int = GROUP_EDGE * GROUP_EDGE
   val BOARD_SIZE: Int = GROUP_SIZE * GROUP_SIZE
 
-  class SolutionStep(val cells: Seq[ActorRef],
-                     val initState: Seq[Set[Byte]],
-                         cellToGuess: Int = -1,
+  class SolutionStep(cellsOptions: Seq[Set[Byte]],
+                     baseState: Seq[Set[Byte]],
+                     cellToGuess: Int = -1,
                      val symbolsToTry: Set[Byte] = Set(),
                      val cellsState: mutable.ArraySeq[Set[Byte]] = mutable.ArraySeq.fill(BOARD_SIZE)(ALL_SYMBOLS)) {
     private var solvable = true
     def isUnsolvable: Boolean = !solvable
     def markUnsolvable(): Unit = solvable = false
+    private val cells = setupCells(cellsOptions)
+
     def nextStep(initState: Seq[Set[Byte]], cellToGuess: Int, symbolsToTry: Set[Byte]): SolutionStep = {
       val newState = initState.updated(cellToGuess, Set(symbolsToTry.head))
-      new SolutionStep(setupCells(newState), initState, cellToGuess, symbolsToTry.tail)
+      new SolutionStep(newState, initState, cellToGuess, symbolsToTry.tail)
     }
     def nextStep(): SolutionStep = {
       val nonSolvedCellsWithIndex = cellsState.zipWithIndex.filter(_._1.size != 1)
       val (minCellOptions, index) = findCellWithMinOptions(nonSolvedCellsWithIndex.toList)
       nextStep(cellsState, index, minCellOptions)
     }
-    def nextOptionStep(): SolutionStep = nextStep(initState, cellToGuess, symbolsToTry)
+    def nextOptionStep(): SolutionStep = nextStep(baseState, cellToGuess, symbolsToTry)
     def hasOptionsToTry: Boolean = symbolsToTry.nonEmpty
+    def stopAll(): Unit = cells.foreach( _ ! PoisonPill )
   }
 
   var solutionSteps = new MutableStack[SolutionStep]
@@ -160,10 +163,8 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
 
   private def findCellWithMinOptions(list: Seq[(Set[Byte], Int)]): (Set[Byte], Int) = findCellWithMinOptions(list.head, list.tail)
 
-  def stopAll(cells: Seq[ActorRef]): Unit = cells.foreach( _ ! PoisonPill )
-
   private def assessSolutionState(): Unit = {
-    stopAll(solutionSteps.peek.cells)
+    solutionSteps.peek.stopAll()
     if (solutionSteps.peek.isUnsolvable) {
       while (solutionSteps.nonEmpty && !solutionSteps.peek.hasOptionsToTry) solutionSteps.pop()
       if (solutionSteps.isEmpty) terminate(Unsolvable)
@@ -184,8 +185,7 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
       val boardSymbols = ALL_SYMBOLS + 0
       assert(board.forall(boardSymbols.contains))
       val cellsOptions = board.map { symbol => if (symbol == 0) ALL_SYMBOLS else Set(symbol) }
-      val cells = setupCells(cellsOptions)
-      solutionSteps.push(new SolutionStep(cells, cellsOptions))
+      solutionSteps.push(new SolutionStep(cellsOptions , cellsOptions))
       requester = sender()
     case msg @ CellUpdate(cellId, values) =>
       ack(msg)
