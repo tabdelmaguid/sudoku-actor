@@ -48,7 +48,40 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
     private var solvable = true
     def isUnsolvable: Boolean = !solvable
     def markUnsolvable(): Unit = solvable = false
-    private val cells = setupCells(cellsOptions)
+    private var cells: mutable.MutableList[ActorRef] = mutable.MutableList()
+
+    setupCells()
+
+    private def createCellsAndSetGroups(): Unit = {
+      val groups: mutable.Map[String, Set[ActorRef]] = mutable.Map()
+
+      (0 until BOARD_SIZE).foreach(index => {
+        val cell = context.actorOf(Cell.props(index), s"cell_$stepCounter-$index")
+        cells += cell
+        val cellGroups = getGroups(index)
+        cellGroups.foreach(groupKey => {
+          groups.initOrUpdate(groupKey, Set(cell), _ + cell)
+        })
+      })
+      groups.foreach { case(groupKey, group) =>
+        group.foreach(cell => {
+          val otherCells = group - cell
+          cell ! track(AddNeighbors(groupKey, otherCells))
+        })
+      }
+      stepCounter += 1
+    }
+
+    private def setCellsOptions(): Unit =
+      cells
+        .zip(cellsOptions)
+        .foreach { case (cell, options) => cell ! track(SetOptions(options)) }
+
+    private def setupCells(): Unit = {
+      createCellsAndSetGroups()
+      onAllMessagesAcked(() => setCellsOptions())
+      onAllMessagesAcked(assessSolutionState)
+    }
 
     def nextStep(initState: Seq[Set[Byte]], cellToGuess: Int, symbolsToTry: Set[Byte]): SolutionStep = {
       val newState = initState.updated(cellToGuess, Set(symbolsToTry.head))
@@ -76,42 +109,6 @@ class Solver(board: List[Byte]) extends Actor with ActorLogging with MessageTrac
     val cellCol = col(index)
     val square = cellCol / 3 + 3 * (cellRow / 3)
     Set(s"R$cellRow", s"C$cellCol", s"S$square")
-  }
-
-  private def createCellsAndSetGroups(): Seq[ActorRef] = {
-
-    val cells: mutable.MutableList[ActorRef] = mutable.MutableList()
-    val groups: mutable.Map[String, Set[ActorRef]] = mutable.Map()
-
-    (0 until BOARD_SIZE).foreach(index => {
-      val cell = context.actorOf(Cell.props(index), s"cell_$stepCounter-$index")
-      cells += cell
-      val cellGroups = getGroups(index)
-      cellGroups.foreach(groupKey => {
-        groups.initOrUpdate(groupKey, Set(cell), _ + cell)
-      })
-    })
-    groups.foreach { case(groupKey, group) =>
-      group.foreach(cell => {
-        val otherCells = group - cell
-        cell ! track(AddNeighbors(groupKey, otherCells))
-      })
-    }
-
-    stepCounter += 1
-    cells
-  }
-
-  private def setCellsOptions(cells: Seq[ActorRef], cellsOptions: Seq[Set[Byte]]): Unit =
-    cells
-      .zip(cellsOptions)
-      .foreach { case (cell, options) => cell ! track(SetOptions(options)) }
-
-  private def setupCells(cellsOptions: Seq[Set[Byte]]): Seq[ActorRef] = {
-    val cells = createCellsAndSetGroups()
-    onAllMessagesAcked(() => setCellsOptions(cells, cellsOptions))
-    onAllMessagesAcked(assessSolutionState)
-    cells
   }
 
   def printBoard(cellsState: Seq[Set[Byte]]): Unit = {
